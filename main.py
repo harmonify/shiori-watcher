@@ -88,15 +88,14 @@ def main():
 
     logging.info("Waiting for notifications on channel 'new_bookmark'")
     while True:
-        if select.select([conn], [], [], 5) == ([], [], []):
-            logging.info("Timeout, no events.")
-        else:
-            conn.poll()
-            while conn.notifies:
-                notify = conn.notifies.pop(0)
-                url = notify.payload
-                logging.info(f"Received URL: {url}")
-                run_archivebox_add(url)
+        select.select([conn], [], [])
+        conn.poll()
+        while conn.notifies:
+            notify = conn.notifies.pop(0)
+            logging.info(f"Got NOTIFY: {notify.pid}, {notify.channel}, {notify.payload}")
+            url = notify.payload
+            logging.info(f"Received URL: {url}")
+            run_archivebox_add(url)
 
 
 if __name__ == "__main__":
