@@ -1,0 +1,98 @@
+version: "3"
+
+services:
+  postgresql:
+    image: postgres:latest
+    restart: unless-stopped
+    container_name: postgresql
+    expose:
+      - 5432
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    user: "${PUID}:${PGID}"
+    volumes:
+      - ./data/postgresql/data:/var/lib/postgresql/data
+
+  ### This runs the optional Sonic full-text search backend (much faster than default rg backend).
+  # If Sonic is ever started after not running for a while, update its full-text index by running:
+  #   $ docker-compose run archivebox update --index-only
+  sonic:
+    image: valeriansaliou/sonic:latest
+    restart: unless-stopped
+    container_name: sonic
+    expose:
+      - 1491
+    user: "${PUID}:${PGID}"
+    environment:
+      - SEARCH_BACKEND_PASSWORD=${SONIC_PASSWORD}
+    volumes:
+      - ./data/sonic/config/sonic.cfg:/etc/sonic.cfg
+      - ./data/sonic/data:/var/lib/sonic/store
+
+  archivebox:
+    image: archivebox/archivebox:latest
+    container_name: archivebox
+    restart: unless-stopped
+    ports:
+      - 8000:8000
+    environment:
+      - ADMIN_USERNAME=${AB_USER} # create an admin user on first run with the given user/pass combo
+      - ADMIN_PASSWORD=${AB_PASSWORD}
+      - ALLOWED_HOSTS=* # restrict this to only accept incoming traffic via specific domain name
+      - PUBLIC_INDEX=False # set to False to prevent anonymous users from viewing snapshot list
+      - PUBLIC_SNAPSHOTS=False # set to False to prevent anonymous users from viewing snapshot content
+      - PUBLIC_ADD_VIEW=False # set to True to allow anonymous users to submit new URLs to archive
+      - SEARCH_BACKEND_ENGINE=sonic # tells ArchiveBox to use sonic container below for fast full-text search
+      - SEARCH_BACKEND_HOST_NAME=sonic
+      - SEARCH_BACKEND_PASSWORD=${SONIC_PASSWORD}
+      - PUID=${PUID} # set to your host user's UID & GID if you encounter permissions issues
+      - PGID=${PGID} # UID/GIDs <500 may clash with existing users and are not recommended
+      # - DISPLAY=0.0.0.0:1.0 # VNC
+      # ...
+      # add further configuration options from archivebox/config.py as needed (to apply them only to this container)
+      # or set using `docker compose run archivebox config --set SOME_KEY=someval` (to persist config across all containers)
+    volumes:
+      - ./data/archivebox/data:/data
+      - ./data/archivebox/chrome_profile:/home/archivebox/chrome_profile
+    depends_on:
+      - sonic
+
+  # https://github.com/go-shiori/shiori
+  shiori:
+    container_name: shiori
+    image: "ghcr.io/go-shiori/shiori:latest"
+    restart: unless-stopped
+    user: "${PUID}:${PGID}"
+    ports:
+      - "8080:8080"
+    environment:
+      - "SHIORI_DIR=/data"
+      - "SHIORI_HTTP_SECRET_KEY=${SHIORI_HTTP_SECRET_KEY}"
+      - "SHIORI_DATABASE_URL=postgres://${DB_USER}:${DB_PASSWORD}@postgresql:5432/${DB_NAME}?sslmode=disable"
+    volumes:
+      - ./data/shiori/data:/data
+    depends_on:
+      - postgresql
+
+  shiori_watcher:
+    build: .
+    container_name: "shiori_watcher"
+    restart: unless-stopped
+    environment:
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=postgresql
+      - DB_PORT=5432
+      - ARCHIVEBOX_CONTAINER_NAME=archivebox
+      - DATA_DIR=/data
+      - LOGS_DIR=/logs
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./data/shiori_watcher/data:/data
+      - ./data/shiori_watcher/logs:/logs
+    depends_on:
+      - postgresql
+      - archivebox
+      - shiori
