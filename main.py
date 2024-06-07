@@ -4,6 +4,7 @@ import select
 import docker
 import logging
 
+
 DATABASE_CONFIG = {
     "dbname": os.getenv("DB_NAME", "mydb"),
     "user": os.getenv("DB_USER", "myuser"),
@@ -19,6 +20,9 @@ DATA_DIR = os.getenv("DATA_DIR", "/data")
 LOGS_DIR = os.getenv("LOGS_DIR", "/logs")
 LOG_FILE_PATH = os.path.join(LOGS_DIR, "run.log")
 URLS_FILE_PATH = os.path.join(DATA_DIR, "new_urls.txt")
+ARCHIVEBOX_PUID = os.getenv("ARCHIVEBOX_PUID")
+ARCHIVEBOX_PGID = os.getenv("ARCHIVEBOX_PGID")
+ARCHIVEBOX_CMD_OPTIONS = os.getenv("ARCHIVEBOX_CMD_OPTIONS")
 
 TRIGGER_FUNCTION = """
 CREATE OR REPLACE FUNCTION notify_new_bookmark() RETURNS TRIGGER AS $$
@@ -71,10 +75,19 @@ def run_archivebox_add(url):
         file.write(f"{url}\n")
     client = docker.from_env()
     container = client.containers.get(ARCHIVEBOX_CONTAINER_NAME)
-    container.exec_run(f"archivebox add {URLS_FILE_PATH}", tty=True)
+    stream = container.exec_run(
+        f"archivebox add {ARCHIVEBOX_CMD_OPTIONS} {url}",
+        user=f"{ARCHIVEBOX_PUID}:{ARCHIVEBOX_PGID}",
+        environment={"CHROME_USER_DATA_DIR": None},
+        stream=True,
+    )
+    for line in stream[1]:
+        logging.info(line.decode("utf-8").strip())
+
+    logging.info(f"Added {url}")
     # Clean up the file
-    with open(URLS_FILE_PATH, "w") as file:
-        file.write("")
+    # with open(URLS_FILE_PATH, "w") as file:
+    #     file.write("")
 
 
 def main():
@@ -92,7 +105,6 @@ def main():
         conn.poll()
         while conn.notifies:
             notify = conn.notifies.pop(0)
-            logging.info(f"Got NOTIFY: {notify.pid}, {notify.channel}, {notify.payload}")
             url = notify.payload
             logging.info(f"Received URL: {url}")
             run_archivebox_add(url)
