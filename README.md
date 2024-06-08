@@ -51,14 +51,18 @@ This will start the following services:
 
 The watcher service uses the following environment variables for configuration:
 
+- `DATA_DIR`: Directory for storing temporary URL files (default: `/data`).
+- `LOGS_DIR`: Directory for storing log files (default: `/logs`).
 - `DB_NAME`: Name of the PostgreSQL database (default: `mydb`).
 - `DB_USER`: PostgreSQL user (default: `myuser`).
 - `DB_PASSWORD`: PostgreSQL password (default: `mypassword`).
 - `DB_HOST`: PostgreSQL host (default: `postgres`).
 - `DB_PORT`: PostgreSQL port (default: `5432`).
 - `ARCHIVEBOX_CONTAINER_NAME`: Name of the ArchiveBox container (default: `archivebox`).
-- `DATA_DIR`: Directory for storing temporary URL files (default: `/data`).
-- `LOGS_DIR`: Directory for storing log files (default: `/logs`).
+- `ARCHIVEBOX_PUID`: PUID of the ArchiveBox container
+- `ARCHIVEBOX_PGID`: PGID of the ArchiveBox container
+- `ARCHIVEBOX_CMD_OPTIONS`: Raw string provided into ArchiveBox CLI inside of its container
+- `APPRISE_URLS`: Space separated push notification service URLs. See <https://github.com/caronc/apprise/wiki> for more information.
 
 ## Contributing
 

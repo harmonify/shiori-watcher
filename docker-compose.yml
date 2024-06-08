@@ -80,6 +80,8 @@ services:
     container_name: "shiori_watcher"
     restart: unless-stopped
     environment:
+      - DATA_DIR=/data
+      - LOGS_DIR=/logs
       - DB_NAME=${DB_NAME}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
@@ -88,8 +90,8 @@ services:
       - ARCHIVEBOX_CONTAINER_NAME=archivebox
       - ARCHIVEBOX_PUID=${PUID}
       - ARCHIVEBOX_PGID=${PGID}
-      - DATA_DIR=/data
-      - LOGS_DIR=/logs
+    #   - "ARCHIVEBOX_CMD_OPTIONS='--depth=1'"
+    #   - APPRISE_URLS=ntfy://ntfy.sh/topic
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./data/shiori_watcher/data:/data
