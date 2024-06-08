@@ -3,6 +3,8 @@ import psycopg2
 import select
 import docker
 import logging
+import apprise
+from logging.handlers import RotatingFileHandler
 
 
 DATABASE_CONFIG = {
@@ -22,7 +24,10 @@ LOG_FILE_PATH = os.path.join(LOGS_DIR, "run.log")
 URLS_FILE_PATH = os.path.join(DATA_DIR, "new_urls.txt")
 ARCHIVEBOX_PUID = os.getenv("ARCHIVEBOX_PUID")
 ARCHIVEBOX_PGID = os.getenv("ARCHIVEBOX_PGID")
-ARCHIVEBOX_CMD_OPTIONS = os.getenv("ARCHIVEBOX_CMD_OPTIONS")
+__ARCHIVEBOX_CMD_OPTIONS = os.getenv("ARCHIVEBOX_CMD_OPTIONS")
+ARCHIVEBOX_CMD_OPTIONS = __ARCHIVEBOX_CMD_OPTIONS if __ARCHIVEBOX_CMD_OPTIONS is not None else ""
+__APPRISE_URLS = os.getenv("APPRISE_URLS")
+APPRISE_URLS = tuple(__APPRISE_URLS.split(" ")) if __APPRISE_URLS is not None else tuple()
 
 TRIGGER_FUNCTION = """
 CREATE OR REPLACE FUNCTION notify_new_bookmark() RETURNS TRIGGER AS $$
@@ -46,14 +51,12 @@ END $$;
 """
 
 
-def initialize_database():
-    conn = psycopg2.connect(**DATABASE_CONFIG)
+def initialize_database(conn):
     cursor = conn.cursor()
     cursor.execute(TRIGGER_FUNCTION)
     cursor.execute(CREATE_TRIGGER)
     conn.commit()
     cursor.close()
-    conn.close()
 
 
 def ensure_directories():
@@ -62,10 +65,15 @@ def ensure_directories():
 
 
 def setup_logging():
+    file_handler = RotatingFileHandler(
+        LOG_FILE_PATH,
+        maxBytes=5 * 1024 * 1024,
+        backupCount=1,
+    )
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=[logging.FileHandler(LOG_FILE_PATH), logging.StreamHandler()],
+        handlers=[file_handler, logging.StreamHandler()],
     )
 
 
@@ -90,16 +98,19 @@ def run_archivebox_add(url):
     #     file.write("")
 
 
-def main():
-    ensure_directories()
+def execute():
     setup_logging()
-    initialize_database()
+    ensure_directories()
+
     conn = psycopg2.connect(**DATABASE_CONFIG)
+    initialize_database(conn)
     conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
     cursor = conn.cursor()
     cursor.execute("LISTEN new_bookmark;")
+    
+    apobj = apprise.Apprise(APPRISE_URLS)
 
-    logging.info("Waiting for notifications on channel 'new_bookmark'")
+    logging.info("Now listening for new bookmarks...")
     while True:
         select.select([conn], [], [])
         conn.poll()
@@ -107,7 +118,28 @@ def main():
             notify = conn.notifies.pop(0)
             url = notify.payload
             logging.info(f"Received URL: {url}")
-            run_archivebox_add(url)
+            try:
+                run_archivebox_add(url)
+                if len(apobj.servers) > 0:
+                    apobj.notify(
+                        title="Archived ✅",
+                        body=url,
+                    )
+            except Exception as e:
+                if len(apobj.servers) > 0:
+                    apobj.notify(
+                        title="Failed to archive ❌",
+                        body=url,
+                    )
+
+
+def main():
+    try:
+        execute()
+    except KeyboardInterrupt:
+        logging.info("Keyboard interrupt. Exiting...")
+    except Exception as e:
+        logging.error(e)
 
 
 if __name__ == "__main__":
